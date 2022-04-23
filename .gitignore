@@ -1,3 +1,6 @@
 *__pycache__*
-results/*
-models/*
+results*
+models*
+.ipynb_checkpoints/
+ignore*
+*.swp
