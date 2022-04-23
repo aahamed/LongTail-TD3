@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pickle
+from collections import defaultdict
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -10,6 +12,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Implementation of Twin Delayed Deep Deterministic Policy Gradients (TD3)
 # Paper: https://arxiv.org/abs/1802.09477
 
+# filename template for transitions data
+FILENAME_TEMPLATE = "./results/TD3_{}_seed{}_batch{}_trans.pkl"
 
 class Actor(nn.Module):
         def __init__(self, state_dim, action_dim, max_action):
@@ -75,7 +79,9 @@ class TD3(object):
                 tau=0.005,
                 policy_noise=0.2,
                 noise_clip=0.5,
-                policy_freq=2
+                policy_freq=2,
+                seed=0,
+                env_name="HalfCheetah-v3",
         ):
 
                 self.actor = Actor(state_dim, action_dim, max_action).to(device)
@@ -95,16 +101,45 @@ class TD3(object):
 
                 self.total_it = 0
 
+                # extra state storage
+                self.seed = seed
+                self.env_name = env_name
+                # maps states to counts
+                self.transitions = defaultdict(int)
+                self.transitions_batch_id = 0
+                self.num_transitions_per_batch = int(1e6)
+
+
         def select_action(self, state):
                 state = torch.FloatTensor(state.reshape(1, -1)).to(device)
                 return self.actor(state).cpu().data.numpy().flatten()
 
+        def save_transitions(self, force=False):
+            # import pdb; pdb.set_trace()
+            if len(self.transitions) >= self.num_transitions_per_batch or force:
+                # save transitions
+                save_dict = { "transitions" : self.transitions }
+                transitions_filename = FILENAME_TEMPLATE.format(self.env_name,
+                        self.seed, self.transitions_batch_id)
+                pickle.dump( save_dict, open(transitions_filename, "wb") )
+                # reset transitions
+                self.transitions = defaultdict(int)
+                self.transitions_batch_id += 1
+
+        def store_transitions(self, state, action, next_state, reward, not_done):
+            # loop through each state in batch
+            for s in state:
+                # https://stackoverflow.com/questions/53376786/convert-byte-array-back-to-numpy-array
+                self.transitions[ s.detach().cpu().numpy().tobytes() ] += 1
+            self.save_transitions()
 
         def train(self, replay_buffer, batch_size=256):
                 self.total_it += 1
 
                 # Sample replay buffer 
                 state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
+                self.store_transitions( state, action, next_state, reward, not_done )
+                
 
                 with torch.no_grad():
                         # Select action according to policy and add clipped noise

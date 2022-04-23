@@ -18,7 +18,7 @@ def eval_policy(policy, env_name, seed, eval_episodes=10):
 
         avg_reward = 0.
         for _ in range(eval_episodes):
-                state, done = eval_env.reset(), False
+                state, done, eps_return = eval_env.reset(), False, 0
                 while not done:
                         action = policy.select_action(np.array(state))
                         state, reward, done, _ = eval_env.step(action)
@@ -89,6 +89,8 @@ if __name__ == "__main__":
                 kwargs["policy_noise"] = args.policy_noise * max_action
                 kwargs["noise_clip"] = args.noise_clip * max_action
                 kwargs["policy_freq"] = args.policy_freq
+                kwargs["seed"] = args.seed
+                kwargs["env_name"] = args.env
                 policy = TD3.TD3(**kwargs)
         elif args.policy == "OurDDPG":
                 policy = OurDDPG.DDPG(**kwargs)
@@ -150,3 +152,5 @@ if __name__ == "__main__":
                         evaluations.append(eval_policy(policy, args.env, args.seed))
                         np.save(f"./results/{file_name}", evaluations)
                         if args.save_model: policy.save(f"./models/{file_name}")
+
+        policy.save_transitions(force=True)
