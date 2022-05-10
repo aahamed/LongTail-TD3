@@ -13,7 +13,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Paper: https://arxiv.org/abs/1802.09477
 
 # filename template for transitions data
-FILENAME_TEMPLATE = "./results/TD3_{}_seed{}_batch{}_trans.pkl"
+# FILENAME_TEMPLATE = "./results/TD3_{}_seed{}_batch{}_trans.pkl"
+FILENAME_TEMPLATE = "./results/TD3_{}_seed{}_trans.pkl"
 
 class Actor(nn.Module):
         def __init__(self, state_dim, action_dim, max_action):
@@ -69,6 +70,10 @@ class Critic(nn.Module):
                 return q1
 
 
+# need this for pickle
+def defaultdict_int_fn():
+    return defaultdict(int)
+
 class TD3(object):
         def __init__(
                 self,
@@ -108,13 +113,18 @@ class TD3(object):
                 self.transitions = defaultdict(int)
                 self.transitions_batch_id = 0
                 self.num_transitions_per_batch = int(1e6)
+                # state -> id
+                self.state_to_id = {}
+                # state_id -> { next_state_id -> freq }
+                self.cond_freq = defaultdict(defaultdict_int_fn)
+                self.free_id = 0
 
 
         def select_action(self, state):
                 state = torch.FloatTensor(state.reshape(1, -1)).to(device)
                 return self.actor(state).cpu().data.numpy().flatten()
 
-        def save_transitions(self, force=False):
+        def save_transitions_v0(self, force=False):
             # import pdb; pdb.set_trace()
             if len(self.transitions) >= self.num_transitions_per_batch or force:
                 # save transitions
@@ -126,12 +136,43 @@ class TD3(object):
                 self.transitions = defaultdict(int)
                 self.transitions_batch_id += 1
 
-        def store_transitions(self, state, action, next_state, reward, not_done):
+        def store_transitions_v0(self, state, action, next_state, reward, not_done):
             # loop through each state in batch
             for s in state:
                 # https://stackoverflow.com/questions/53376786/convert-byte-array-back-to-numpy-array
                 self.transitions[ s.detach().cpu().numpy().tobytes() ] += 1
             self.save_transitions()
+
+        def save_transitions(self, force=False):
+            # import pdb; pdb.set_trace()
+            save_dict = {
+                "cond_freq" : self.cond_freq,
+                "state_to_id" : self.state_to_id,
+            }
+            save_filename = FILENAME_TEMPLATE.format(self.env_name,
+                self.seed )
+            pickle.dump( save_dict, open(save_filename, "wb") )
+
+        def store_transitions(self, state, action, next_state, reward, not_done):
+            # state has dimensions: batch_size x obs_dim
+            # update state_to_id map
+            for s in state:
+                s = s.detach().cpu().numpy().tobytes()
+                if s not in self.state_to_id:
+                    self.state_to_id[ s ] = self.free_id
+                    self.free_id += 1
+            for ns in next_state:
+                ns = ns.detach().cpu().numpy().tobytes()
+                if ns not in self.state_to_id:
+                    self.state_to_id[ ns ] = self.free_id
+                    self.free_id += 1
+            
+            # update cond_freq map
+            for s, ns in zip(state, next_state):
+                s = s.detach().cpu().numpy().tobytes()
+                ns = ns.detach().cpu().numpy().tobytes()
+                s_id, ns_id = self.state_to_id[s], self.state_to_id[ns]
+                self.cond_freq[s_id][ns_id] += 1
 
         def train(self, replay_buffer, batch_size=256):
                 self.total_it += 1
