@@ -153,24 +153,18 @@ class TD3(object):
                 self.seed )
             pickle.dump( save_dict, open(save_filename, "wb") )
 
-        def store_transitions(self, state, action, next_state, reward, not_done):
-            # state has dimensions: batch_size x obs_dim
-            # update state_to_id map
-            for s in state:
-                s = s.detach().cpu().numpy().tobytes()
-                if s not in self.state_to_id:
-                    self.state_to_id[ s ] = self.free_id
-                    self.free_id += 1
-            for ns in next_state:
-                ns = ns.detach().cpu().numpy().tobytes()
-                if ns not in self.state_to_id:
-                    self.state_to_id[ ns ] = self.free_id
-                    self.free_id += 1
-            
+        def update_state_to_id( self, state ):
+            if state not in self.state_to_id:
+                self.state_to_id[ state ] = self.free_id
+                self.free_id += 1
+
+        def store_transitions(self, state, action, next_state, reward, not_done): 
             # update cond_freq map
             for s, ns in zip(state, next_state):
                 s = s.detach().cpu().numpy().tobytes()
                 ns = ns.detach().cpu().numpy().tobytes()
+                self.update_state_to_id( s )
+                self.update_state_to_id( ns )
                 s_id, ns_id = self.state_to_id[s], self.state_to_id[ns]
                 self.cond_freq[s_id][ns_id] += 1
 
